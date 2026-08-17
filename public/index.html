@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hush</title>
+<link rel="icon" href="/icon.png">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<!-- ===================== ЭКРАН: АВТОРИЗАЦИЯ ===================== -->
+<div id="screen-auth" class="screen">
+  <div class="auth-box">
+    <!-- Место под иконку приложения: положите файл icon.png в /public -->
+    <img id="app-icon" src="/icon.png" alt="Hush" onerror="this.style.display='none'">
+    <h1>Hush</h1>
+
+    <div id="auth-tabs">
+      <button id="tab-login" class="tab active">Вход</button>
+      <button id="tab-register" class="tab">Регистрация</button>
+    </div>
+
+    <!-- ВХОД -->
+    <form id="form-login" class="auth-form">
+      <input type="text" id="login-id" placeholder="Email или юзернейм" required>
+      <input type="password" id="login-password" placeholder="Пароль" required>
+      <button type="submit">Войти</button>
+      <p class="error" id="login-error"></p>
+    </form>
+
+    <!-- РЕГИСТРАЦИЯ: шаг 1 -->
+    <form id="form-reg-start" class="auth-form hidden">
+      <input type="email" id="reg-email" placeholder="Email" required>
+      <input type="password" id="reg-password" placeholder="Пароль (мин. 6 символов)" required>
+      <button type="submit">Получить код</button>
+      <p class="error" id="reg-start-error"></p>
+    </form>
+
+    <!-- РЕГИСТРАЦИЯ: шаг 2, код -->
+    <form id="form-reg-verify" class="auth-form hidden">
+      <p class="hint">Код отправлен на почту</p>
+      <input type="text" id="reg-code" placeholder="Код из письма" required>
+      <button type="submit">Подтвердить</button>
+      <p class="error" id="reg-verify-error"></p>
+    </form>
+
+    <!-- РЕГИСТРАЦИЯ: шаг 3, профиль -->
+    <form id="form-reg-complete" class="auth-form hidden">
+      <label id="avatar-picker">
+        <img id="avatar-preview" src="" alt="">
+        <span id="avatar-placeholder">Выбрать аватар</span>
+        <input type="file" id="reg-avatar" accept="image/*" hidden>
+      </label>
+      <input type="text" id="reg-nickname" placeholder="Отображаемое имя" required>
+      <input type="text" id="reg-username" placeholder="Юзернейм (мин. 4 символа)" required minlength="4">
+      <button type="submit">Создать аккаунт</button>
+      <p class="error" id="reg-complete-error"></p>
+    </form>
+  </div>
+</div>
+
+<!-- ===================== ЭКРАН: ПРИЛОЖЕНИЕ ===================== -->
+<div id="screen-app" class="screen hidden">
+  <div id="app-layout">
+
+    <!-- Боковая панель -->
+    <div id="sidebar">
+      <div id="sidebar-header">
+        <img id="my-avatar" src="" alt="" onclick="openProfile(currentUser.username)">
+        <input type="text" id="search-input" placeholder="Поиск людей...">
+        <button id="new-chat-btn" title="Новый чат/канал">+</button>
+      </div>
+
+      <div id="search-results" class="list hidden"></div>
+
+      <div id="chat-list" class="list"></div>
+    </div>
+
+    <!-- Окно чата -->
+    <div id="chat-window">
+      <div id="chat-header" class="hidden">
+        <img id="chat-header-avatar" src="" alt="">
+        <span id="chat-header-name"></span>
+      </div>
+      <div id="messages"></div>
+      <form id="message-form" class="hidden">
+        <input type="text" id="message-input" placeholder="Сообщение..." autocomplete="off">
+        <button type="submit">Отправить</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== МОДАЛКА: ПРОФИЛЬ ===================== -->
+<div id="modal-profile" class="modal hidden">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeProfile()">×</button>
+    <img id="profile-avatar" src="" alt="">
+    <h2 id="profile-nickname"></h2>
+    <p id="profile-username"></p>
+    <p id="profile-bio"></p>
+    <button id="profile-message-btn">Написать</button>
+  </div>
+</div>
+
+<!-- ===================== МОДАЛКА: НОВЫЙ ЧАТ/КАНАЛ ===================== -->
+<div id="modal-new-chat" class="modal hidden">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeNewChat()">×</button>
+    <h2>Новый чат</h2>
+    <select id="new-chat-type">
+      <option value="direct">Личный чат</option>
+      <option value="group">Группа</option>
+      <option value="channel">Канал</option>
+    </select>
+    <input type="text" id="new-chat-name" placeholder="Название (для группы/канала)" class="hidden">
+    <input type="text" id="new-chat-members" placeholder="Юзернеймы через запятую">
+    <button id="new-chat-create">Создать</button>
+    <p class="error" id="new-chat-error"></p>
+  </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/client.js"></script>
+</body>
+</html>

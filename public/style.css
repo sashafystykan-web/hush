@@ -1,0 +1,227 @@
+/* Базовый reset — без цветов, без скруглений, только структура */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+}
+
+body {
+  font-family: system-ui, sans-serif;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.hidden {
+  display: none !important;
+}
+
+button, input, select {
+  font: inherit;
+  border-radius: 0;
+}
+
+/* ---------- Экран авторизации ---------- */
+#screen-auth {
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.auth-box {
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+#app-icon {
+  width: 64px;
+  height: 64px;
+  align-self: center;
+  object-fit: cover;
+}
+
+#auth-tabs {
+  display: flex;
+}
+
+#auth-tabs .tab {
+  flex: 1;
+  padding: 8px;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.auth-form input, .auth-form button {
+  padding: 8px;
+}
+
+.error {
+  min-height: 1em;
+  font-size: 0.85em;
+}
+
+.hint {
+  font-size: 0.85em;
+}
+
+#avatar-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+#avatar-preview {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  display: none;
+}
+
+/* ---------- Приложение ---------- */
+#app-layout {
+  display: flex;
+  height: 100vh;
+}
+
+#sidebar {
+  width: 280px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid;
+  overflow: hidden;
+}
+
+#sidebar-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-bottom: 1px solid;
+}
+
+#my-avatar {
+  width: 32px;
+  height: 32px;
+  object-fit: cover;
+  cursor: pointer;
+}
+
+#search-input {
+  flex: 1;
+  padding: 6px;
+}
+
+.list {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.list-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  cursor: pointer;
+  border-bottom: 1px solid;
+}
+
+.list-item img {
+  width: 36px;
+  height: 36px;
+  object-fit: cover;
+}
+
+#chat-window {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+#chat-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-bottom: 1px solid;
+}
+
+#chat-header-avatar {
+  width: 32px;
+  height: 32px;
+  object-fit: cover;
+}
+
+#messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.message {
+  max-width: 60%;
+  padding: 6px 8px;
+  border: 1px solid;
+}
+
+.message.mine {
+  align-self: flex-end;
+}
+
+.message .meta {
+  font-size: 0.75em;
+  display: block;
+}
+
+#message-form {
+  display: flex;
+  border-top: 1px solid;
+}
+
+#message-input {
+  flex: 1;
+  padding: 10px;
+}
+
+/* ---------- Модалки ---------- */
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-box {
+  position: relative;
+  width: 320px;
+  padding: 20px;
+  background: white;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.modal-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
+#profile-avatar {
+  width: 80px;
+  height: 80px;
+  object-fit: cover;
+  align-self: center;
+}
