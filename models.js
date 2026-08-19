@@ -21,6 +21,9 @@ const UserSchema = new Schema({
     contentType: { type: String, default: 'image/webp' }
   },
   bio: { type: String, default: '', maxlength: 200 },
+  // Статус админа выдаётся вручную через БД, см. README ("Как выдать админку")
+  isAdmin: { type: Boolean, default: false },
+  lastPostAt: { type: Date, default: null }, // для антиспама постов
   createdAt: { type: Date, default: Date.now }
 });
 
@@ -35,8 +38,26 @@ const PostSchema = new Schema({
   createdAt: { type: Date, default: Date.now, index: true }
 });
 
+// Дружба между двумя пользователями: pending -> accepted
+const FriendshipSchema = new Schema({
+  from: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true }, // кто отправил заявку
+  to: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  status: { type: String, enum: ['pending', 'accepted'], default: 'pending' },
+  createdAt: { type: Date, default: Date.now }
+});
+FriendshipSchema.index({ from: 1, to: 1 }, { unique: true });
+
+// Новости приложения от админов (лента слева)
+const AnnouncementSchema = new Schema({
+  author: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  text: { type: String, required: true, trim: true, maxlength: 1000 },
+  createdAt: { type: Date, default: Date.now, index: true }
+});
+
 module.exports = {
   PendingUser: mongoose.model('PendingUser', PendingUserSchema),
   User: mongoose.model('User', UserSchema),
-  Post: mongoose.model('Post', PostSchema)
+  Post: mongoose.model('Post', PostSchema),
+  Friendship: mongoose.model('Friendship', FriendshipSchema),
+  Announcement: mongoose.model('Announcement', AnnouncementSchema)
 };
