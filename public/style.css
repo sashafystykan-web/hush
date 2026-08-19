@@ -5,9 +5,9 @@
 }
 
 :root {
-  --bg: #0e1621;
-  --bg-panel: #17212b;
-  --bg-elevated: #1f2a37;
+  --bg: #0d0d0d;
+  --bg-panel: #2b2b2b;
+  --bg-elevated: #2e2e2e;
   --border: #2b3947;
   --text: #e6ebf0;
   --text-dim: #7d8b99;
