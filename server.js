@@ -10,7 +10,7 @@ const sharp = require('sharp');
 const mongoose = require('mongoose');
 const { Server } = require('socket.io');
 
-const { PendingUser, User, Chat, Message } = require('./models');
+const { PendingUser, User, Post } = require('./models');
 const { sendVerificationCode } = require('./mail');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_change_me';
@@ -67,6 +67,24 @@ function publicUser(user) {
     nickname: user.nickname,
     bio: user.bio,
     hasAvatar: !!(user.avatar && user.avatar.data)
+  };
+}
+
+// Приводит пост к виду для отдачи клиенту: считает счёт голосов и голос текущего юзера
+function publicPost(post, viewerId) {
+  const score = post.votes.reduce((sum, v) => sum + v.value, 0);
+  const myVote = viewerId ? (post.votes.find(v => String(v.user) === String(viewerId))?.value || 0) : 0;
+  return {
+    id: post._id,
+    text: post.text,
+    createdAt: post.createdAt,
+    author: post.author ? {
+      id: post.author._id,
+      username: post.author.username,
+      nickname: post.author.nickname
+    } : null,
+    score,
+    myVote
   };
 }
 
@@ -205,7 +223,7 @@ app.get('/api/me', authMiddleware, async (req, res) => {
 });
 
 // =======================================================
-// Аватар пользователя / чата (отдаём бинарник)
+// Аватар пользователя (отдаём бинарник)
 // =======================================================
 app.get('/api/avatar/user/:id', async (req, res) => {
   const user = await User.findById(req.params.id);
@@ -213,14 +231,6 @@ app.get('/api/avatar/user/:id', async (req, res) => {
   res.set('Content-Type', user.avatar.contentType);
   res.set('Cache-Control', 'public, max-age=86400');
   res.send(user.avatar.data);
-});
-
-app.get('/api/avatar/chat/:id', async (req, res) => {
-  const chat = await Chat.findById(req.params.id);
-  if (!chat || !chat.avatar || !chat.avatar.data) return res.status(404).end();
-  res.set('Content-Type', chat.avatar.contentType);
-  res.set('Cache-Control', 'public, max-age=86400');
-  res.send(chat.avatar.data);
 });
 
 // =======================================================
@@ -244,74 +254,80 @@ app.get('/api/users/:username', authMiddleware, async (req, res) => {
   res.json(publicUser(user));
 });
 
+// Посты конкретного пользователя (для профиля)
+app.get('/api/users/:username/posts', authMiddleware, async (req, res) => {
+  const user = await User.findOne({ username: req.params.username });
+  if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
+  const posts = await Post.find({ author: user._id })
+    .populate('author', 'username nickname')
+    .sort({ createdAt: -1 })
+    .limit(50);
+  res.json(posts.map(p => publicPost(p, req.userId)));
+});
+
 // =======================================================
-// Чаты и каналы
+// Лента постов
 // =======================================================
 
-// Создать личный чат / группу / канал
-app.post('/api/chats', authMiddleware, async (req, res) => {
+// Список постов: ?sort=new|top
+app.get('/api/posts', authMiddleware, async (req, res) => {
+  const posts = await Post.find({})
+    .populate('author', 'username nickname')
+    .sort({ createdAt: -1 })
+    .limit(100);
+
+  let result = posts.map(p => publicPost(p, req.userId));
+  if (req.query.sort === 'top') {
+    result = result.sort((a, b) => b.score - a.score || new Date(b.createdAt) - new Date(a.createdAt));
+  }
+  res.json(result);
+});
+
+// Создать пост
+app.post('/api/posts', authMiddleware, async (req, res) => {
   try {
-    const { type, memberUsernames, name } = req.body;
-    if (!['direct', 'group', 'channel'].includes(type)) {
-      return res.status(400).json({ error: 'Неверный тип чата' });
-    }
+    const text = (req.body.text || '').trim();
+    if (!text) return res.status(400).json({ error: 'Пустой пост' });
+    if (text.length > 2000) return res.status(400).json({ error: 'Слишком длинный пост' });
 
-    const members = await User.find({ username: { $in: memberUsernames || [] } });
+    const post = await Post.create({ author: req.userId, text });
+    await post.populate('author', 'username nickname');
 
-    if (type === 'direct') {
-      if (members.length !== 1) return res.status(400).json({ error: 'Для личного чата нужен ровно один собеседник' });
-      // не создаём дубликат личного чата
-      const existing = await Chat.findOne({
-        type: 'direct',
-        'members.user': { $all: [req.userId, members[0]._id] }
-      });
-      if (existing) return res.json(existing);
-
-      const chat = await Chat.create({
-        type: 'direct',
-        members: [{ user: req.userId, role: 'member' }, { user: members[0]._id, role: 'member' }]
-      });
-      return res.json(chat);
-    }
-
-    // group или channel
-    if (!name) return res.status(400).json({ error: 'Укажите название' });
-    const chat = await Chat.create({
-      type,
-      name,
-      owner: req.userId,
-      members: [
-        { user: req.userId, role: 'owner' },
-        ...members.map(m => ({ user: m._id, role: 'member' }))
-      ]
-    });
-    res.json(chat);
+    const payload = publicPost(post, null);
+    io.emit('post:new', payload);
+    res.json(payload);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 });
 
-// Список моих чатов
-app.get('/api/chats', authMiddleware, async (req, res) => {
-  const chats = await Chat.find({ 'members.user': req.userId })
-    .populate('members.user', 'username nickname')
-    .sort({ lastMessageAt: -1 });
-  res.json(chats);
+// Удалить свой пост
+app.delete('/api/posts/:id', authMiddleware, async (req, res) => {
+  const post = await Post.findById(req.params.id);
+  if (!post) return res.status(404).json({ error: 'Пост не найден' });
+  if (String(post.author) !== req.userId) return res.status(403).json({ error: 'Нет доступа' });
+
+  await Post.deleteOne({ _id: post._id });
+  io.emit('post:delete', { id: post._id });
+  res.json({ ok: true });
 });
 
-// История сообщений чата
-app.get('/api/chats/:id/messages', authMiddleware, async (req, res) => {
-  const chat = await Chat.findById(req.params.id);
-  if (!chat) return res.status(404).json({ error: 'Чат не найден' });
-  const isMember = chat.members.some(m => String(m.user) === req.userId);
-  if (!isMember) return res.status(403).json({ error: 'Нет доступа' });
+// Голосование: value = 1 (апвоут), -1 (даунвоут) или 0 (снять голос)
+app.post('/api/posts/:id/vote', authMiddleware, async (req, res) => {
+  const value = Number(req.body.value);
+  if (![1, -1, 0].includes(value)) return res.status(400).json({ error: 'Неверный голос' });
 
-  const messages = await Message.find({ chat: chat._id })
-    .populate('sender', 'username nickname')
-    .sort({ createdAt: 1 })
-    .limit(200);
-  res.json(messages);
+  const post = await Post.findById(req.params.id);
+  if (!post) return res.status(404).json({ error: 'Пост не найден' });
+
+  post.votes = post.votes.filter(v => String(v.user) !== req.userId);
+  if (value !== 0) post.votes.push({ user: req.userId, value });
+  await post.save();
+
+  const score = post.votes.reduce((sum, v) => sum + v.value, 0);
+  io.emit('post:vote', { id: post._id, score });
+  res.json({ score, myVote: value });
 });
 
 // ---------- Отдаём index.html на все прочие GET (одностраничный клиент) ----------
@@ -320,46 +336,16 @@ app.get('*', (req, res) => {
 });
 
 // =======================================================
-// Socket.io — реальное время
+// Socket.io — только для лайв-обновлений ленты
 // =======================================================
 io.use((socket, next) => {
   try {
     const token = socket.handshake.auth?.token;
-    const decoded = jwt.verify(token, JWT_SECRET);
-    socket.userId = decoded.uid;
+    jwt.verify(token, JWT_SECRET);
     next();
   } catch {
     next(new Error('unauthorized'));
   }
-});
-
-io.on('connection', (socket) => {
-  socket.on('join', (chatId) => {
-    socket.join(String(chatId));
-  });
-
-  socket.on('leave', (chatId) => {
-    socket.leave(String(chatId));
-  });
-
-  socket.on('message', async ({ chatId, text }) => {
-    if (!text || !text.trim()) return;
-    try {
-      const chat = await Chat.findById(chatId);
-      if (!chat) return;
-      const isMember = chat.members.some(m => String(m.user) === socket.userId);
-      if (!isMember) return;
-
-      const message = await Message.create({ chat: chatId, sender: socket.userId, text: text.trim() });
-      chat.lastMessageAt = new Date();
-      await chat.save();
-
-      const populated = await message.populate('sender', 'username nickname');
-      io.to(String(chatId)).emit('message', populated);
-    } catch (err) {
-      console.error('socket message error:', err.message);
-    }
-  });
 });
 
 server.listen(PORT, () => console.log(`Hush запущен на порту ${PORT}`));
