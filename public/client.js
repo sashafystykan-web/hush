@@ -1,11 +1,11 @@
 // ============ Состояние ============
 let token = localStorage.getItem('hush_token') || null;
 let currentUser = null;
-let currentChatId = null;
 let setupToken = null; // временный токен между шагами регистрации
 let regEmail = null;
 let socket = null;
 let regAvatarBase64 = null;
+let currentSort = 'new';
 
 // ============ Утилиты ============
 async function api(path, method = 'GET', body = null) {
@@ -25,8 +25,31 @@ function avatarUrl(userId) {
   return userId ? `/api/avatar/user/${userId}` : '';
 }
 
-function chatAvatarUrl(chatId) {
-  return `/api/avatar/chat/${chatId}`;
+// Заполняет переданный контейнер аватаркой: фото, если есть, иначе — первая буква ника
+function fillAvatar(wrap, user) {
+  wrap.innerHTML = '';
+  const letter = (user.nickname || user.username || '?').trim().charAt(0).toUpperCase();
+  if (!user.id) { wrap.textContent = letter; return; }
+  const img = document.createElement('img');
+  img.src = avatarUrl(user.id);
+  img.onerror = () => { wrap.innerHTML = ''; wrap.textContent = letter; };
+  wrap.appendChild(img);
+}
+
+// Создаёт новый div-аватар (для списков: лента, поиск)
+function buildAvatar(user, extraClass) {
+  const wrap = document.createElement('div');
+  wrap.className = 'avatar' + (extraClass ? ' ' + extraClass : '');
+  fillAvatar(wrap, user);
+  return wrap;
+}
+
+function timeAgo(dateStr) {
+  const diff = (Date.now() - new Date(dateStr).getTime()) / 1000;
+  if (diff < 60) return 'только что';
+  if (diff < 3600) return Math.floor(diff / 60) + ' мин назад';
+  if (diff < 86400) return Math.floor(diff / 3600) + ' ч назад';
+  return Math.floor(diff / 86400) + ' дн назад';
 }
 
 function show(el) { el.classList.remove('hidden'); }
@@ -151,9 +174,11 @@ function onAuthSuccess(newToken, user) {
   localStorage.setItem('hush_token', token);
   hide(document.getElementById('screen-auth'));
   show(document.getElementById('screen-app'));
-  document.getElementById('my-avatar').src = avatarUrl(user.id);
+
+  fillAvatar(document.getElementById('my-avatar'), user);
+
   connectSocket();
-  loadChats();
+  loadFeed();
 }
 
 // Попытка авто-входа по сохранённому токену
@@ -168,89 +193,147 @@ function onAuthSuccess(newToken, user) {
   }
 })();
 
-// ============ Сокеты ============
+// ============ Сокеты (лайв-обновления ленты) ============
 function connectSocket() {
   socket = io({ auth: { token } });
-  socket.on('message', (msg) => {
-    if (String(msg.chat) === String(currentChatId)) {
-      renderMessage(msg);
-    }
-    loadChats(); // обновить порядок/превью в списке
+
+  socket.on('post:new', (post) => {
+    if (currentSort === 'new') prependPost(post);
+  });
+
+  socket.on('post:vote', ({ id, score }) => {
+    const el = document.querySelector(`.post[data-id="${id}"] .post-score`);
+    if (el) el.textContent = score;
+  });
+
+  socket.on('post:delete', ({ id }) => {
+    const el = document.querySelector(`.post[data-id="${id}"]`);
+    if (el) el.remove();
   });
 }
 
-// ============ Список чатов ============
-async function loadChats() {
-  const chats = await api('/chats');
-  const listEl = document.getElementById('chat-list');
-  listEl.innerHTML = '';
-  chats.forEach(chat => {
-    const item = document.createElement('div');
-    item.className = 'list-item';
-    const img = document.createElement('img');
-    img.src = chatAvatarUrl(chat._id);
-    img.onerror = () => { img.style.visibility = 'hidden'; };
-    const label = document.createElement('span');
-    label.textContent = chatDisplayName(chat);
-    item.append(img, label);
-    item.onclick = () => openChat(chat._id, chatDisplayName(chat));
-    listEl.appendChild(item);
-  });
+// ============ Лента ============
+const feedEl = document.getElementById('feed');
+
+async function loadFeed() {
+  const posts = await api('/posts?sort=' + currentSort);
+  feedEl.innerHTML = '';
+  posts.forEach(p => feedEl.appendChild(renderPost(p)));
 }
 
-function chatDisplayName(chat) {
-  if (chat.type === 'direct') {
-    const other = chat.members.find(m => m.user._id !== currentUser.id && m.user._id !== currentUser.id);
-    const otherMember = chat.members.map(m => m.user).find(u => u._id !== currentUser.id);
-    return otherMember ? (otherMember.nickname || otherMember.username) : 'Личный чат';
-  }
-  return chat.name || 'Без названия';
+document.querySelectorAll('.sort-btn').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentSort = btn.dataset.sort;
+    loadFeed();
+  };
+});
+
+function prependPost(post) {
+  feedEl.insertBefore(renderPost(post), feedEl.firstChild);
 }
 
-// ============ Открыть чат ============
-async function openChat(chatId, displayName) {
-  if (currentChatId) socket.emit('leave', currentChatId);
-  currentChatId = chatId;
-  socket.emit('join', chatId);
-
-  document.getElementById('chat-header-name').textContent = displayName;
-  document.getElementById('chat-header-avatar').src = chatAvatarUrl(chatId);
-  show(document.getElementById('chat-header'));
-  show(document.getElementById('message-form'));
-
-  const messagesEl = document.getElementById('messages');
-  messagesEl.innerHTML = '';
-  const messages = await api(`/chats/${chatId}/messages`);
-  messages.forEach(renderMessage);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
-}
-
-function renderMessage(msg) {
-  const messagesEl = document.getElementById('messages');
+function renderPost(post) {
   const el = document.createElement('div');
-  el.className = 'message' + (msg.sender._id === currentUser.id || msg.sender === currentUser.id ? ' mine' : '');
-  const meta = document.createElement('span');
-  meta.className = 'meta';
-  meta.textContent = msg.sender.nickname || msg.sender.username || '';
-  const text = document.createElement('span');
-  text.textContent = msg.text;
-  el.append(meta, text);
-  messagesEl.appendChild(el);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
+  el.className = 'post';
+  el.dataset.id = post.id;
+
+  const avatar = buildAvatar(post.author || { nickname: '?' });
+
+  const body = document.createElement('div');
+  body.className = 'post-body';
+
+  const head = document.createElement('div');
+  head.className = 'post-head';
+  const nickname = document.createElement('span');
+  nickname.className = 'nickname';
+  nickname.textContent = post.author ? post.author.nickname : 'Удалён';
+  const username = document.createElement('span');
+  username.className = 'username';
+  username.textContent = post.author ? '@' + post.author.username : '';
+  const time = document.createElement('span');
+  time.className = 'time';
+  time.textContent = timeAgo(post.createdAt);
+  head.append(nickname, username, time);
+
+  const text = document.createElement('div');
+  text.className = 'post-text';
+  text.textContent = post.text;
+
+  const footer = document.createElement('div');
+  footer.className = 'post-footer';
+
+  const upBtn = document.createElement('button');
+  upBtn.className = 'vote-btn' + (post.myVote === 1 ? ' active' : '');
+  upBtn.textContent = '▲';
+
+  const scoreEl = document.createElement('span');
+  scoreEl.className = 'post-score';
+  scoreEl.textContent = post.score;
+
+  const downBtn = document.createElement('button');
+  downBtn.className = 'vote-btn' + (post.myVote === -1 ? ' active' : '');
+  downBtn.textContent = '▼';
+
+  let myVote = post.myVote;
+  async function vote(value) {
+    const newValue = myVote === value ? 0 : value;
+    try {
+      const data = await api(`/posts/${post.id}/vote`, 'POST', { value: newValue });
+      myVote = data.myVote;
+      scoreEl.textContent = data.score;
+      upBtn.classList.toggle('active', myVote === 1);
+      downBtn.classList.toggle('active', myVote === -1);
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+  upBtn.onclick = () => vote(1);
+  downBtn.onclick = () => vote(-1);
+
+  footer.append(upBtn, scoreEl, downBtn);
+
+  if (post.author && currentUser && post.author.id === currentUser.id) {
+    const delBtn = document.createElement('span');
+    delBtn.className = 'post-delete';
+    delBtn.textContent = 'Удалить';
+    delBtn.onclick = async () => {
+      if (!confirm('Удалить пост?')) return;
+      try {
+        await api(`/posts/${post.id}`, 'DELETE');
+        el.remove();
+      } catch (err) {
+        alert(err.message);
+      }
+    };
+    footer.appendChild(delBtn);
+  }
+
+  body.append(head, text, footer);
+  el.append(avatar, body);
+  return el;
 }
 
-document.getElementById('message-form').onsubmit = (e) => {
+// ============ Публикация поста ============
+document.getElementById('compose-form').onsubmit = async (e) => {
   e.preventDefault();
-  const input = document.getElementById('message-input');
-  if (!input.value.trim() || !currentChatId) return;
-  socket.emit('message', { chatId: currentChatId, text: input.value });
-  input.value = '';
+  const textEl = document.getElementById('compose-text');
+  const text = textEl.value.trim();
+  if (!text) return;
+  try {
+    await api('/posts', 'POST', { text });
+    textEl.value = '';
+    // пост придёт через сокет всем, включая автора — не дублируем локально
+  } catch (err) {
+    alert(err.message);
+  }
 };
 
 // ============ Поиск людей ============
 const searchInput = document.getElementById('search-input');
 const searchResultsEl = document.getElementById('search-results');
-const chatListEl = document.getElementById('chat-list');
+const feedPageEl = document.getElementById('feed-page');
 let searchDebounce = null;
 
 searchInput.oninput = () => {
@@ -258,7 +341,7 @@ searchInput.oninput = () => {
   const q = searchInput.value.trim();
   if (!q) {
     hide(searchResultsEl);
-    show(chatListEl);
+    show(feedPageEl);
     return;
   }
   searchDebounce = setTimeout(async () => {
@@ -267,16 +350,14 @@ searchInput.oninput = () => {
     users.forEach(u => {
       const item = document.createElement('div');
       item.className = 'list-item';
-      const img = document.createElement('img');
-      img.src = avatarUrl(u.id);
-      img.onerror = () => { img.style.visibility = 'hidden'; };
+      const avatar = buildAvatar(u);
       const label = document.createElement('span');
       label.textContent = u.nickname + ' (@' + u.username + ')';
-      item.append(img, label);
+      item.append(avatar, label);
       item.onclick = () => openProfile(u.username);
       searchResultsEl.appendChild(item);
     });
-    hide(chatListEl);
+    hide(feedPageEl);
     show(searchResultsEl);
   }, 300);
 };
@@ -286,47 +367,18 @@ const modalProfile = document.getElementById('modal-profile');
 
 async function openProfile(username) {
   const user = await api('/users/' + username);
-  document.getElementById('profile-avatar').src = avatarUrl(user.id);
+  fillAvatar(document.getElementById('profile-avatar'), user);
+
   document.getElementById('profile-nickname').textContent = user.nickname;
   document.getElementById('profile-username').textContent = '@' + user.username;
   document.getElementById('profile-bio').textContent = user.bio || '';
-  document.getElementById('profile-message-btn').onclick = async () => {
-    if (user.username === currentUser.username) { closeProfile(); return; }
-    const chat = await api('/chats', 'POST', { type: 'direct', memberUsernames: [user.username] });
-    closeProfile();
-    await loadChats();
-    openChat(chat._id, user.nickname);
-  };
+
+  const postsEl = document.getElementById('profile-posts');
+  postsEl.innerHTML = '';
+  const posts = await api(`/users/${user.username}/posts`);
+  posts.forEach(p => postsEl.appendChild(renderPost(p)));
+
   show(modalProfile);
 }
 
 function closeProfile() { hide(modalProfile); }
-
-// ============ Новый чат / группа / канал ============
-const modalNewChat = document.getElementById('modal-new-chat');
-const newChatType = document.getElementById('new-chat-type');
-const newChatName = document.getElementById('new-chat-name');
-
-document.getElementById('new-chat-btn').onclick = () => show(modalNewChat);
-function closeNewChat() { hide(modalNewChat); }
-
-newChatType.onchange = () => {
-  if (newChatType.value === 'direct') hide(newChatName);
-  else show(newChatName);
-};
-
-document.getElementById('new-chat-create').onclick = async () => {
-  const errEl = document.getElementById('new-chat-error');
-  errEl.textContent = '';
-  const type = newChatType.value;
-  const members = document.getElementById('new-chat-members').value
-    .split(',').map(s => s.trim()).filter(Boolean);
-  try {
-    const chat = await api('/chats', 'POST', { type, name: newChatName.value.trim(), memberUsernames: members });
-    closeNewChat();
-    await loadChats();
-    openChat(chat._id, chatDisplayName({ ...chat, members: chat.members || [] }) || newChatName.value);
-  } catch (err) {
-    errEl.textContent = err.message;
-  }
-};
